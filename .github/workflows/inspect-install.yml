@@ -1,0 +1,76 @@
+name: Inspect Install Directory
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '@vscode/deviceid version to install (e.g., 0.1.4)'
+        required: true
+        default: '0.1.4'
+      node_version:
+        description: 'Node.js version to use (>=22)'
+        required: true
+        default: '22'
+
+jobs:
+  inspect-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ github.event.inputs.node_version }}
+
+      - name: Create working directory
+        run: mkdir install-test
+        shell: pwsh
+
+      - name: Install @vscode/deviceid
+        working-directory: install-test
+        run: |
+          npm init -y
+          npm install @vscode/deviceid@${{ github.event.inputs.version }}
+        shell: pwsh
+
+      - name: Print directory tree
+        working-directory: install-test
+        run: |
+          Get-ChildItem -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+        shell: pwsh
+
+      - name: Upload full install directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-dir-win32-x64-v${{ github.event.inputs.version }}
+          path: install-test/
+
+  inspect-windows-arm64:
+    runs-on: windows-11-arm
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ github.event.inputs.node_version }}
+
+      - name: Create working directory
+        run: mkdir install-test
+        shell: pwsh
+
+      - name: Install @vscode/deviceid
+        working-directory: install-test
+        run: |
+          npm init -y
+          npm install @vscode/deviceid@${{ github.event.inputs.version }}
+        shell: pwsh
+
+      - name: Print directory tree
+        working-directory: install-test
+        run: |
+          Get-ChildItem -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+        shell: pwsh
+
+      - name: Upload full install directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-dir-win32-arm64-v${{ github.event.inputs.version }}
+          path: install-test/

@@ -1,0 +1,270 @@
+name: Build DeviceId Prebuilds
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '@vscode/deviceid version to build (e.g., 0.1.4)'
+        required: true
+        default: '0.1.4'
+      node_version:
+        description: 'Node.js version to use (>=22)'
+        required: true
+        default: '22'
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    outputs:
+      napi_version: ${{ steps.napi.outputs.version }}
+      filename: ${{ steps.copy.outputs.filename }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Node.js version
+        run: |
+          $nodeVersion = [int]"${{ github.event.inputs.node_version }}"
+          if ($nodeVersion -lt 22) {
+            Write-Error "Node.js version must be >= 22. Provided: $nodeVersion"
+            exit 1
+          }
+          Write-Host "Node.js version validation passed: $nodeVersion"
+        shell: pwsh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ github.event.inputs.node_version }}
+
+      - name: Install @vscode/deviceid
+        run: |
+          npm install @vscode/deviceid@${{ github.event.inputs.version }}
+        shell: pwsh
+
+      - name: Detect NAPI version
+        id: napi
+        run: |
+          $packageJsonPath = "node_modules/@vscode/deviceid/package.json"
+          if (Test-Path $packageJsonPath) {
+            $packageJson = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+            if ($packageJson.binary -and $packageJson.binary.napi_versions -and $packageJson.binary.napi_versions.Count -gt 0) {
+              $napiVersion = $packageJson.binary.napi_versions[0]
+              if ($napiVersion -match '^\d+$' -and [int]$napiVersion -gt 0) {
+                Write-Host "Detected NAPI version: $napiVersion"
+                echo "version=$napiVersion" >> $env:GITHUB_OUTPUT
+              } else {
+                Write-Error "Invalid NAPI version detected: $napiVersion"
+                exit 1
+              }
+            } else {
+              # Fallback: detect NAPI version from node_api_version in the node header
+              $napiVersion = (node -e "console.log(process.versions.napi)")
+              Write-Host "NAPI version from binary config not found, using runtime NAPI version: $napiVersion"
+              echo "version=$napiVersion" >> $env:GITHUB_OUTPUT
+            }
+          } else {
+            Write-Error "@vscode/deviceid package.json not found!"
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Find and copy windows.node
+        id: copy
+        run: |
+          $nodeFiles = Get-ChildItem -Path "node_modules" -Recurse -Filter "windows.node"
+          Write-Host "Found $($nodeFiles.Count) windows.node file(s)"
+
+          if ($nodeFiles.Count -eq 0) {
+            Write-Error "windows.node not found!"
+            exit 1
+          }
+
+          if ($nodeFiles.Count -gt 1) {
+            Write-Host "Multiple windows.node files found:"
+            $nodeFiles | ForEach-Object { Write-Host "  - $($_.FullName)" }
+            Write-Host "Using the largest one"
+            $nodeFile = $nodeFiles | Sort-Object Length -Descending | Select-Object -First 1
+          } else {
+            $nodeFile = $nodeFiles[0]
+          }
+
+          Write-Host "Selected windows.node at: $($nodeFile.FullName)"
+          Write-Host "File size: $($nodeFile.Length) bytes"
+
+          $outputFile = "deviceid-v${{ github.event.inputs.version }}-napi-v${{ steps.napi.outputs.version }}-win32-x64.node"
+          Copy-Item $nodeFile.FullName -Destination $outputFile
+          Write-Host "Copied to: $outputFile"
+          echo "filename=$outputFile" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: Verify file
+        run: |
+          $outputFile = "${{ steps.copy.outputs.filename }}"
+          if (Test-Path $outputFile) {
+            $fileInfo = Get-Item $outputFile
+            Write-Host "File size: $($fileInfo.Length) bytes"
+          } else {
+            Write-Error "Output file not found!"
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deviceid-win32-x64
+          path: ${{ steps.copy.outputs.filename }}
+
+  build-windows-arm64:
+    runs-on: windows-11-arm
+    permissions:
+      contents: write
+    outputs:
+      napi_version: ${{ steps.napi.outputs.version }}
+      filename: ${{ steps.copy.outputs.filename }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Node.js version
+        run: |
+          $nodeVersion = [int]"${{ github.event.inputs.node_version }}"
+          if ($nodeVersion -lt 22) {
+            Write-Error "Node.js version must be >= 22. Provided: $nodeVersion"
+            exit 1
+          }
+          Write-Host "Node.js version validation passed: $nodeVersion"
+        shell: pwsh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ github.event.inputs.node_version }}
+
+      - name: Install @vscode/deviceid
+        run: |
+          npm install @vscode/deviceid@${{ github.event.inputs.version }}
+        shell: pwsh
+
+      - name: Detect NAPI version
+        id: napi
+        run: |
+          $packageJsonPath = "node_modules/@vscode/deviceid/package.json"
+          if (Test-Path $packageJsonPath) {
+            $packageJson = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+            if ($packageJson.binary -and $packageJson.binary.napi_versions -and $packageJson.binary.napi_versions.Count -gt 0) {
+              $napiVersion = $packageJson.binary.napi_versions[0]
+              if ($napiVersion -match '^\d+$' -and [int]$napiVersion -gt 0) {
+                Write-Host "Detected NAPI version: $napiVersion"
+                echo "version=$napiVersion" >> $env:GITHUB_OUTPUT
+              } else {
+                Write-Error "Invalid NAPI version detected: $napiVersion"
+                exit 1
+              }
+            } else {
+              $napiVersion = (node -e "console.log(process.versions.napi)")
+              Write-Host "NAPI version from binary config not found, using runtime NAPI version: $napiVersion"
+              echo "version=$napiVersion" >> $env:GITHUB_OUTPUT
+            }
+          } else {
+            Write-Error "@vscode/deviceid package.json not found!"
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Find and copy windows.node
+        id: copy
+        run: |
+          $nodeFiles = Get-ChildItem -Path "node_modules" -Recurse -Filter "windows.node"
+          Write-Host "Found $($nodeFiles.Count) windows.node file(s)"
+
+          if ($nodeFiles.Count -eq 0) {
+            Write-Error "windows.node not found!"
+            exit 1
+          }
+
+          if ($nodeFiles.Count -gt 1) {
+            Write-Host "Multiple windows.node files found:"
+            $nodeFiles | ForEach-Object { Write-Host "  - $($_.FullName)" }
+            Write-Host "Using the largest one"
+            $nodeFile = $nodeFiles | Sort-Object Length -Descending | Select-Object -First 1
+          } else {
+            $nodeFile = $nodeFiles[0]
+          }
+
+          Write-Host "Selected windows.node at: $($nodeFile.FullName)"
+          Write-Host "File size: $($nodeFile.Length) bytes"
+
+          $outputFile = "deviceid-v${{ github.event.inputs.version }}-napi-v${{ steps.napi.outputs.version }}-win32-arm64.node"
+          Copy-Item $nodeFile.FullName -Destination $outputFile
+          Write-Host "Copied to: $outputFile"
+          echo "filename=$outputFile" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: Verify file
+        run: |
+          $outputFile = "${{ steps.copy.outputs.filename }}"
+          if (Test-Path $outputFile) {
+            $fileInfo = Get-Item $outputFile
+            Write-Host "File size: $($fileInfo.Length) bytes"
+          } else {
+            Write-Error "Output file not found!"
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deviceid-win32-arm64
+          path: ${{ steps.copy.outputs.filename }}
+
+  create-release:
+    needs: [build-windows-x64, build-windows-arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deviceid-win32-x64
+
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deviceid-win32-arm64
+
+      - name: List files
+        run: ls -la *.node
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}-node${{ github.event.inputs.node_version }}
+          name: v${{ github.event.inputs.version }}
+          body: |
+            @vscode/deviceid prebuilt binaries for Windows
+
+            - Version: ${{ github.event.inputs.version }}
+            - Node.js version: ${{ github.event.inputs.node_version }}
+            - NAPI version (x64): ${{ needs.build-windows-x64.outputs.napi_version }}
+            - NAPI version (arm64): ${{ needs.build-windows-arm64.outputs.napi_version }}
+
+            ### Assets
+            - `${{ needs.build-windows-x64.outputs.filename }}` — Windows x64
+            - `${{ needs.build-windows-arm64.outputs.filename }}` — Windows ARM64
+
+            ### Usage
+            Download the `.node` file for your platform and place it in your project.
+          files: |
+            ${{ needs.build-windows-x64.outputs.filename }}
+            ${{ needs.build-windows-arm64.outputs.filename }}
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
